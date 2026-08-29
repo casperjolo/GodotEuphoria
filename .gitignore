@@ -1,0 +1,29 @@
+# Godot 4 import cache and editor state - regenerated on open, never committed.
+.godot/
+/android/
+
+# Legacy import folder (Godot 3)
+.import/
+
+# Export artefacts
+export.cfg
+export_presets.cfg
+build/
+*.exe
+*.pck
+*.zip
+
+# Auto-generated from CSV
+*.translation
+
+# Mono / C#
+.mono/
+data_*/
+mono_crash.*.json
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+desktop.ini
+*.tmp
+*~

@@ -1,0 +1,45 @@
+[gd_scene format=3 uid="uid://biajxvocpluhi"]
+
+[ext_resource type="PackedScene" uid="uid://d2lkhm2qu8m21" path="res://NaturalMotion/Characters/Fred.glb" id="1_fred"]
+[ext_resource type="Script" path="res://Scenes/FredAnimation.gd" id="2_anim"]
+[ext_resource type="Script" path="res://Scenes/FredController.gd" id="3_ctrl"]
+[ext_resource type="Script" path="res://Scenes/FredMaterial.gd" id="4_mat"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_driver"]
+radius = 0.32
+height = 1.75
+
+[node name="Fred" type="CharacterBody3D"]
+collision_layer = 2
+script = ExtResource("3_ctrl")
+
+[node name="DriverShape" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.875, 0)
+shape = SubResource("CapsuleShape3D_driver")
+
+[node name="HipMarker" type="Marker3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.95, 0)
+
+[node name="AnimatedTarget" parent="." instance=ExtResource("1_fred")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9882, 0)
+
+[node name="FredAnimation" type="Node" parent="."]
+script = ExtResource("2_anim")
+
+[node name="FredMaterial" type="Node" parent="."]
+script = ExtResource("4_mat")
+
+[node name="FootIK" type="Node" parent="."]
+
+[node name="CameraRig" type="Node3D" parent="."]
+
+[node name="ShoulderPivot" type="Node3D" parent="CameraRig"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.6, 0, 0)
+
+[node name="SpringArm3D" type="SpringArm3D" parent="CameraRig/ShoulderPivot"]
+spring_length = 2.2
+collision_mask = 1
+margin = 0.2
+
+[node name="Camera3D" type="Camera3D" parent="CameraRig/ShoulderPivot/SpringArm3D"]
+fov = 60.0

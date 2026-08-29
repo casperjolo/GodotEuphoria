@@ -1,0 +1,67 @@
+[gd_scene format=3 uid="uid://b0p5r0l7oe13m"]
+
+[ext_resource type="PackedScene" uid="uid://biajxvocpluhi" path="res://Scenes/Fred.tscn" id="1_fred"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_c1w88"]
+sky_horizon_color = Color(0.66224277, 0.6717428, 0.6867428, 1)
+ground_horizon_color = Color(0.66224277, 0.6717428, 0.6867428, 1)
+
+[sub_resource type="Sky" id="Sky_r150o"]
+sky_material = SubResource("ProceduralSkyMaterial_c1w88")
+
+[sub_resource type="Environment" id="Environment_idj7w"]
+background_mode = 1
+background_color = Color(0.8819366, 0.8819366, 0.88193655, 1)
+sky = SubResource("Sky_r150o")
+ambient_light_source = 2
+ambient_light_color = Color(0.24840015, 0.24840018, 0.24840015, 1)
+reflected_light_source = 2
+ssr_enabled = true
+ssao_enabled = true
+ssil_enabled = true
+sdfgi_enabled = true
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_ground"]
+size = Vector3(40, 1, 40)
+
+[sub_resource type="BoxMesh" id="BoxMesh_ground"]
+size = Vector3(40, 1, 40)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_crate"]
+size = Vector3(0.5, 0.5, 0.5)
+
+[sub_resource type="BoxMesh" id="BoxMesh_crate"]
+size = Vector3(0.5, 0.5, 0.5)
+
+[node name="World" type="Node3D" unique_id=978785972]
+
+[node name="Environment" type="WorldEnvironment" parent="." unique_id=567099570]
+environment = SubResource("Environment_idj7w")
+
+[node name="Sun" type="DirectionalLight3D" parent="." unique_id=762191792]
+transform = Transform3D(-0.8660254, -0.43301278, 0.25, 0, 0.49999997, 0.86602545, -0.50000006, 0.75, -0.43301266, 0, 0, 0)
+shadow_enabled = true
+
+[node name="Ground" type="StaticBody3D" parent="." unique_id=484835017]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
+
+[node name="Shape" type="CollisionShape3D" parent="Ground" unique_id=1238250222]
+shape = SubResource("BoxShape3D_ground")
+
+[node name="Mesh" type="MeshInstance3D" parent="Ground" unique_id=766372284]
+mesh = SubResource("BoxMesh_ground")
+
+[node name="Fred" parent="." unique_id=948661271 instance=ExtResource("1_fred")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.93171644, 0)
+
+[node name="TestCrate" type="RigidBody3D" parent="." unique_id=267554224]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.4, 4)
+collision_mask = 9
+mass = 12.0
+freeze = true
+
+[node name="Shape" type="CollisionShape3D" parent="TestCrate" unique_id=1064529609]
+shape = SubResource("BoxShape3D_crate")
+
+[node name="Mesh" type="MeshInstance3D" parent="TestCrate" unique_id=39302796]
+mesh = SubResource("BoxMesh_crate")

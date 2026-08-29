@@ -5,6 +5,13 @@
 ## AnimationMixer as root motion, so the mesh stays on the collision capsule
 ## instead of sliding away. Clip choice is a simple speed threshold for now --
 ## this is the seam the motion matcher will replace.
+##
+## Now includes:
+## - Jumping
+## - Falling with procedural animation
+## - Landing
+## - Euphoria-style ragdoll on impact
+
 extends CharacterBody3D
 class_name FredController
 
@@ -13,6 +20,19 @@ class_name FredController
 @export var acceleration: float = 12.0
 @export var turn_speed: float = 10.0
 @export var gravity: float = 9.8
+
+@export_group("Jump")
+@export var jump_force: float = 5.0
+@export var jump_duration: float = 0.3
+
+@export_group("Fall")
+@export var fall_threshold: float = 0.1  # Time in air before considered falling
+@export var fall_speed_threshold: float = 2.0  # Vertical speed to trigger fall state
+
+@export_group("Ragdoll")
+@export var enable_ragdoll: bool = true
+@export var ragdoll_duration: float = 2.0  # How long to stay in ragdoll after impact
+@export var impact_threshold: float = 5.0  # Velocity threshold for ragdoll activation
 
 @export_group("Camera")
 @export var mouse_sensitivity: float = 0.003
@@ -45,8 +65,16 @@ var _pitch := -0.28
 @onready var shoulder_pivot: Node3D = $CameraRig/ShoulderPivot
 @onready var spring_arm: SpringArm3D = $CameraRig/ShoulderPivot/SpringArm3D
 @onready var matcher: MotionMatcher = get_node_or_null("MotionMatcher")
+@onready var state_machine: CharacterStateMachine = $StateMachine
+@onready var ragdoll: EuphoriaRagdoll = $EuphoriaRagdoll
 
+# State tracking
 var _current_clip := ""
+var _was_grounded: bool = true
+var _fall_timer: float = 0.0
+var _jump_timer: float = 0.0
+var _land_timer: float = 0.0
+var _ragdoll_timer: float = 0.0
 
 func _ready() -> void:
 	# Fall back to whatever the libraries actually contain, so a renamed or
@@ -64,6 +92,28 @@ func _ready() -> void:
 		_play(idle_clip)
 
 	animation.bind_character(self)
+
+	# Initialize state machine
+	if state_machine:
+		state_machine.setup(self, animation.anim_player, animation.skeleton)
+		state_machine.walk_speed = walk_speed
+		state_machine.run_speed = run_speed
+		state_machine.jump_force = jump_force
+		state_machine.jump_duration = jump_duration
+		state_machine.fall_threshold = fall_threshold
+		state_machine.fall_speed_threshold = fall_speed_threshold
+
+	# Initialize ragdoll
+	if enable_ragdoll and ragdoll:
+		ragdoll.gravity_multiplier = 1.0
+		ragdoll.ragdoll_duration = ragdoll_duration
+		ragdoll.impact_threshold = impact_threshold
+		ragdoll.enable()
+		
+		# Connect ragdoll signals to state machine
+		ragdoll.ragdoll_started.connect(state_machine._on_ragdoll_started)
+		ragdoll.ragdoll_ended.connect(state_machine._on_ragdoll_ended)
+		ragdoll.impact_detected.connect(state_machine._on_impact_detected)
 
 	# The rig is a child of Fred for convenience, but it must not inherit his
 	# yaw: he turns to face the direction he is moving, and that direction is
@@ -114,6 +164,9 @@ func _physics_process(delta: float) -> void:
 	var input := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 	var sprinting := Input.is_action_pressed("sprint")
 
+	# Check for jump input
+	var want_jump := Input.is_action_just_pressed("jump")
+	
 	# Move relative to where the camera is facing.
 	var basis := camera_rig.global_transform.basis
 	var forward := -basis.z
@@ -128,20 +181,101 @@ func _physics_process(delta: float) -> void:
 		right = right.normalized()
 	var dir := (right * input.x + forward * -input.y).normalized()
 
+	# Update state machine
+	if state_machine:
+		state_machine.update(delta, dir, sprinting)
+	
+	# Handle movement based on current state
 	var target_speed := 0.0
 	if dir.length_squared() > 0.01:
 		target_speed = run_speed if sprinting else walk_speed
 
 	var target_vel := dir * target_speed
-	velocity.x = move_toward(velocity.x, target_vel.x, acceleration * delta)
-	velocity.z = move_toward(velocity.z, target_vel.z, acceleration * delta)
-
-	if is_on_floor():
-		velocity.y = 0.0
+	
+	# Apply movement based on state
+	if state_machine and state_machine.is_in_ragdoll():
+		# Ragdoll controls movement - disable normal movement but allow some air control
+		if not is_on_floor():
+			# In air during ragdoll, allow minimal control
+			velocity.x = move_toward(velocity.x, target_vel.x, acceleration * delta * 0.2)
+			velocity.z = move_toward(velocity.z, target_vel.z, acceleration * delta * 0.2)
+		else:
+			# On ground in ragdoll, stop horizontal movement
+			velocity.x = move_toward(velocity.x, 0.0, acceleration * delta * 2.0)
+			velocity.z = move_toward(velocity.z, 0.0, acceleration * delta * 2.0)
 	else:
-		velocity.y -= gravity * delta
+		# Normal movement
+			
+		State.JUMP:
+			# In jump state, maintain horizontal velocity but don't apply gravity yet
+			# (gravity is handled by the jump itself)
+			velocity.x = move_toward(velocity.x, target_vel.x, acceleration * delta)
+			velocity.z = move_toward(velocity.z, target_vel.z, acceleration * delta)
+			
+		State.FALL:
+			# In fall state, maintain some air control
+			velocity.x = move_toward(velocity.x, target_vel.x, acceleration * delta * 0.5)
+			velocity.z = move_toward(velocity.z, target_vel.z, acceleration * delta * 0.5)
+			
+		_:
+			# Normal movement
+			velocity.x = move_toward(velocity.x, target_vel.x, acceleration * delta)
+			velocity.z = move_toward(velocity.z, target_vel.z, acceleration * delta)
 
-	move_and_slide()
+	# Handle jump
+	if want_jump and state_machine and state_machine.can_jump():
+		state_machine.force_state(CharacterStateMachine.State.JUMP)
+		velocity.y = jump_force
+		_jump_timer = 0.0
+
+	# Handle gravity and floor
+	if is_on_floor():
+		# Track landing
+		if not _was_grounded:
+			# Just landed
+			if state_machine and (state_machine.get_current_state() == CharacterStateMachine.State.JUMP or 
+				state_machine.get_current_state() == CharacterStateMachine.State.FALL):
+				# Check if we should ragdoll
+				if enable_ragdoll and ragdoll and velocity.y < -impact_threshold:
+					# Significant impact - trigger ragdoll
+					ragdoll.detect_impact(velocity, floor_normal())
+					state_machine.force_state(CharacterStateMachine.State.RAGDOLL)
+				elif state_machine:
+					state_machine.force_state(CharacterStateMachine.State.LAND)
+			
+		velocity.y = 0.0
+		_was_grounded = true
+		_fall_timer = 0.0
+	else:
+		# In air
+		velocity.y -= gravity * delta
+		_was_grounded = false
+		
+		# Track fall time
+		if not is_on_floor():
+			_fall_timer += delta
+			
+			# Transition to fall state if falling long enough or fast enough
+			if state_machine:
+				if _fall_timer > fall_threshold or velocity.y < -fall_speed_threshold:
+					if state_machine.get_current_state() != CharacterStateMachine.State.FALL and
+					   state_machine.get_current_state() != CharacterStateMachine.State.JUMP:
+						state_machine.force_state(CharacterStateMachine.State.FALL)
+						if ragdoll:
+							ragdoll.start_falling()
+
+	# Update ragdoll physics
+	if ragdoll and ragdoll.is_in_ragdoll():
+		ragdoll._physics_process(delta)
+
+	# Only move_and_slide if not in full ragdoll mode
+	# In ragdoll mode, physics are handled by the ragdoll system
+	if not (ragdoll and ragdoll.state == EuphoriaRagdoll.State.RAGDOLL):
+		move_and_slide()
+	else:
+		# In ragdoll mode, we still need to update the position
+		# but physics are applied directly to the body
+		move_and_slide()
 
 	# Face the direction of travel. Fred's mesh looks down -Z, the same way a
 	# Godot node does, so the yaw pointing him along d is atan2(-d.x, -d.z).
@@ -151,7 +285,8 @@ func _physics_process(delta: float) -> void:
 		var want := atan2(-dir.x, -dir.z)
 		rotation.y = lerp_angle(rotation.y, want, turn_speed * delta)
 
-	if matcher and matcher.enabled:
+	# Update motion matcher
+	if matcher and matcher.enabled and not (state_machine and state_machine.is_in_ragdoll()):
 		# Hand the matcher intent, not a clip name: where we want to go, how
 		# fast, and which way we are facing. It picks the pose.
 		matcher.desired_velocity = target_vel

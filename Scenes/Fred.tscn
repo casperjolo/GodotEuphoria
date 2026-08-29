@@ -5,6 +5,8 @@
 [ext_resource type="Script" path="res://Scenes/FredController.gd" id="3_ctrl"]
 [ext_resource type="Script" path="res://Scenes/FredMaterial.gd" id="4_mat"]
 [ext_resource type="Script" path="res://Scripts/Motion/MotionMatcher.gd" id="5_match"]
+[ext_resource type="Script" path="res://Scripts/Character/CharacterStateMachine.gd" id="6_state"]
+[ext_resource type="Script" path="res://Scripts/Physics/EuphoriaRagdoll.gd" id="7_ragdoll"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_driver"]
 radius = 0.32
@@ -32,6 +34,12 @@ script = ExtResource("4_mat")
 
 [node name="MotionMatcher" type="Node" parent="."]
 script = ExtResource("5_match")
+
+[node name="StateMachine" type="Node" parent="."]
+script = ExtResource("6_state")
+
+[node name="EuphoriaRagdoll" type="Node" parent="."]
+script = ExtResource("7_ragdoll")
 
 [node name="FootIK" type="Node" parent="."]
 

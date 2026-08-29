@@ -4,6 +4,7 @@
 [ext_resource type="Script" path="res://Scenes/FredAnimation.gd" id="2_anim"]
 [ext_resource type="Script" path="res://Scenes/FredController.gd" id="3_ctrl"]
 [ext_resource type="Script" path="res://Scenes/FredMaterial.gd" id="4_mat"]
+[ext_resource type="Script" path="res://Scripts/Motion/MotionMatcher.gd" id="5_match"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_driver"]
 radius = 0.32
@@ -28,6 +29,9 @@ script = ExtResource("2_anim")
 
 [node name="FredMaterial" type="Node" parent="."]
 script = ExtResource("4_mat")
+
+[node name="MotionMatcher" type="Node" parent="."]
+script = ExtResource("5_match")
 
 [node name="FootIK" type="Node" parent="."]
 

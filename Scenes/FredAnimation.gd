@@ -14,10 +14,27 @@ class_name FredAnimation
 const LIB_DIR := "res://Animations/Retargeted"
 const ROOT_BONE := "_rootJoint"
 
+const InertializerScript = preload("res://Scripts/Motion/PoseInertializer.gd")
+const FootIKScript = preload("res://Scripts/Motion/FootIK.gd")
+const WallTouchScript = preload("res://Scripts/Instincts/WallTouch.gd")
+const IdleLookScript = preload("res://Scripts/Instincts/IdleLook.gd")
+
 @export var debug_selftest: bool = false
+
+@export_group("Procedural layers")
+## Order matters: these run as SkeletonModifier3D children in the order added,
+## so foot planting settles the stance before the upper body reacts to it.
+@export var enable_foot_ik: bool = true
+@export var enable_wall_touch: bool = true
+@export var enable_idle_look: bool = true
 
 var anim_player: AnimationPlayer
 var skeleton: Skeleton3D
+
+var inertializer: PoseInertializer
+var foot_ik: SkeletonModifier3D
+var wall_touch: SkeletonModifier3D
+var idle_look: SkeletonModifier3D
 
 var _selftest_frames := 0
 var _selftest_samples: Array[Vector3] = []
@@ -47,10 +64,45 @@ func _ready() -> void:
 	var loaded := _load_libraries()
 	print("FredAnimation: %d clips across %d libraries" % [loaded, anim_player.get_animation_library_list().size()])
 
+	_add_modifiers()
+
 	if debug_selftest:
 		set_process(true)
 	else:
 		set_process(false)
+
+## SkeletonModifier3D only runs as a child of the Skeleton3D, which lives deep
+## inside the instanced .glb, so these are built here rather than placed in the
+## scene. Tune their defaults in their own scripts, or reach them through the
+## foot_ik / wall_touch / idle_look handles.
+func _add_modifiers() -> void:
+	# First in the chain: it smooths the raw animated pose, and everything
+	# after it should react to the settled result rather than the raw cut.
+	inertializer = InertializerScript.new()
+	inertializer.name = "PoseInertializer"
+	skeleton.add_child(inertializer)
+
+	if enable_foot_ik:
+		foot_ik = FootIKScript.new()
+		foot_ik.name = "FootIK"
+		skeleton.add_child(foot_ik)
+	if enable_wall_touch:
+		wall_touch = WallTouchScript.new()
+		wall_touch.name = "WallTouch"
+		skeleton.add_child(wall_touch)
+	if enable_idle_look:
+		idle_look = IdleLookScript.new()
+		idle_look.name = "IdleLook"
+		skeleton.add_child(idle_look)
+
+
+## Give every procedural layer a handle on the character body, so they can read
+## velocity and grounded state.
+func bind_character(body: CharacterBody3D) -> void:
+	for m in [foot_ik, wall_touch, idle_look]:
+		if m:
+			m.character = body
+
 
 ## Load every baked category library. Clip names become "<Category>/<clip>".
 func _load_libraries() -> int:

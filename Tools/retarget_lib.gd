@@ -209,16 +209,30 @@ static func retarget_animation(anim: Animation, src: RigInfo, tgt: RigInfo,
 			out.track_set_interpolation_type(pt, Animation.INTERPOLATION_LINEAR)
 			pos_track_of[ti] = pt
 
-	# Separate track for world travel, consumed as root motion at runtime.
+	# Separate tracks for world travel AND turn, both consumed as root motion at
+	# runtime. Leaving the turn on the pelvis would spin the whole mesh whenever
+	# a turning clip plays, while the character body kept facing where the player
+	# pointed it.
 	var root_idx := tgt.idx(TARGET_ROOT_BONE)
 	var root_track := -1
+	var root_rot_track := -1
 	if root_idx >= 0:
 		root_track = out.add_track(Animation.TYPE_POSITION_3D)
 		out.track_set_path(root_track, NodePath(track_prefix + ":" + TARGET_ROOT_BONE))
 		out.track_set_interpolation_type(root_track, Animation.INTERPOLATION_LINEAR)
+		root_rot_track = out.add_track(Animation.TYPE_ROTATION_3D)
+		out.track_set_path(root_rot_track, NodePath(track_prefix + ":" + TARGET_ROOT_BONE))
+		out.track_set_interpolation_type(root_rot_track, Animation.INTERPOLATION_LINEAR)
 
-	var up_tgt := rig_orientation(tgt, "SKEL_Pelvis_00", "SKEL_Head_020",
-		"SKEL_L_Thigh_01", "SKEL_R_Thigh_04").y
+	var tgt_ori := rig_orientation(tgt, "SKEL_Pelvis_00", "SKEL_Head_020",
+		"SKEL_L_Thigh_01", "SKEL_R_Thigh_04")
+	var up_tgt := tgt_ori.y
+	# side x up is the character's back, so forward is its negation.
+	var rest_fwd_tgt := -tgt_ori.z
+	var hips_ti := tgt.idx("SKEL_Pelvis_00")
+	var hips_rest_rot := Quaternion.IDENTITY
+	if hips_ti >= 0:
+		hips_rest_rot = tgt.rest_model[hips_ti].basis.get_rotation_quaternion()
 
 	var step := 1.0 / fps
 	var frame_count := int(ceil(anim.length / step)) + 1
@@ -244,35 +258,64 @@ static func retarget_animation(anim: Animation, src: RigInfo, tgt: RigInfo,
 			var deviation_tgt := C * deviation * C_inv
 			tgt_model_rot[ti] = (deviation_tgt * tgt_rest).normalized()
 
-		# Second pass: convert model-space to parent-local for each target bone.
+		# --- root motion: the character's turn and travel, lifted off the body ---
+		var vertical := Vector3.ZERO
+		var root_rot := Quaternion.IDENTITY
+		var root_pos := Vector3.ZERO
+		if root_idx >= 0:
+			# Yaw is how far the pelvis has turned from rest, measured about the
+			# rig's up axis. Taking it here and writing it to the root is what
+			# stops turning clips from spinning the mesh.
+			if hips_ti >= 0 and tgt_model_rot.has(hips_ti):
+				var dev: Quaternion = tgt_model_rot[hips_ti] * hips_rest_rot.inverse()
+				var facing: Vector3 = dev * rest_fwd_tgt
+				facing = facing - up_tgt * facing.dot(up_tgt)
+				if facing.length_squared() > 1e-8:
+					root_rot = Quaternion(up_tgt, _signed_angle(rest_fwd_tgt,
+						facing.normalized(), up_tgt))
+
+			var si := src.idx(ROOT_MOTION_BONE)
+			var delta: Vector3 = C * (src_model[si].origin - src.rest_model[si].origin) * hip_scale
+			vertical = up_tgt * delta.dot(up_tgt)
+			root_pos = tgt.rest_local[root_idx].origin + (delta - vertical)
+
+			out.rotation_track_insert_key(root_rot_track, t, root_rot.normalized())
+			out.position_track_insert_key(root_track, t, root_pos)
+			# Publish it so the pelvis resolves against the animated root rather
+			# than against identity.
+			tgt_model_rot[root_idx] = root_rot
+
+		# Convert model-space to parent-local for each target bone.
 		for ti in rot_track_of:
 			var model_rot: Quaternion = tgt_model_rot[ti]
 			var parent_rot := _nearest_mapped_parent_rot(ti, tgt, tgt_model_rot)
 			var local_rot := (parent_rot.inverse() * model_rot).normalized()
 			out.rotation_track_insert_key(rot_track_of[ti], t, local_rot)
 
-		# Hip translation, rotated into target space and scaled between the rigs,
-		# then split: vertical bob stays on the pelvis, horizontal travel moves
-		# to the skeleton root so it can be consumed as root motion.
+		# Pelvis keeps only the vertical bob, anchored to the root's REST
+		# transform rather than its animated one. At runtime the root track is
+		# consumed as root motion, so the root bone sits at rest -- anchoring the
+		# pelvis to the animated root would subtract the travel twice and walk
+		# the mesh backwards out from under the collision capsule.
 		for ti in pos_track_of:
-			var si := src.idx(ROOT_MOTION_BONE)
-			var delta: Vector3 = C * (src_model[si].origin - src.rest_model[si].origin) * hip_scale
-			var vertical := up_tgt * delta.dot(up_tgt)
-			var horizontal := delta - vertical
-
 			var model_pos: Vector3 = tgt.rest_model[ti].origin + vertical
-			var p := tgt.parents[ti]
 			var local_pos := model_pos
+			var p := tgt.parents[ti]
 			if p >= 0:
-				var parent_rot := _nearest_mapped_parent_rot(ti, tgt, tgt_model_rot)
-				local_pos = parent_rot.inverse() * (model_pos - tgt.rest_model[p].origin)
+				local_pos = tgt.rest_model[p].affine_inverse() * model_pos
 			out.position_track_insert_key(pos_track_of[ti], t, local_pos)
 
-			if root_track >= 0:
-				out.position_track_insert_key(root_track, t,
-					tgt.rest_local[root_idx].origin + horizontal)
-
 	return out
+
+
+## Angle from `from` to `to` measured about `axis`, signed by the right-hand
+## rule. Both vectors are assumed already perpendicular to the axis.
+static func _signed_angle(from: Vector3, to: Vector3, axis: Vector3) -> float:
+	var a := (from - axis * from.dot(axis)).normalized()
+	var b := (to - axis * to.dot(axis)).normalized()
+	if a.length_squared() < 0.5 or b.length_squared() < 0.5:
+		return 0.0
+	return atan2(a.cross(b).dot(axis), a.dot(b))
 
 
 ## Walk up the target hierarchy until we hit a bone we actually animated;

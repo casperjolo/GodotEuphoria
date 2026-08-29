@@ -35,6 +35,7 @@ var _yaw := 0.0
 var _pitch := -0.28
 
 @export_group("Clips")
+## Fallbacks used only when motion matching is off or has no database.
 @export var idle_clip: String = "Idle/M_Neutral_Stand_Idle_Loop"
 @export var walk_clip: String = "Walk/M_Neutral_Walk_Loop_F"
 @export var run_clip: String = "Run/M_Neutral_Run_Loop_F"
@@ -43,6 +44,7 @@ var _pitch := -0.28
 @onready var camera_rig: Node3D = $CameraRig
 @onready var shoulder_pivot: Node3D = $CameraRig/ShoulderPivot
 @onready var spring_arm: SpringArm3D = $CameraRig/ShoulderPivot/SpringArm3D
+@onready var matcher: MotionMatcher = get_node_or_null("MotionMatcher")
 
 var _current_clip := ""
 
@@ -52,8 +54,16 @@ func _ready() -> void:
 	idle_clip = _resolve(idle_clip, "Idle", ["Stand_Idle_Loop", "Idle_Loop", "Idle"])
 	walk_clip = _resolve(walk_clip, "Walk", ["Walk_Loop_F", "Walk_Loop", "Walk"])
 	run_clip = _resolve(run_clip, "Run", ["Run_Loop_F", "Run_Loop", "Run"])
-	print("FredController clips -> idle:%s walk:%s run:%s" % [idle_clip, walk_clip, run_clip])
-	_play(idle_clip)
+	# Motion matching drives clip choice when it has a database; the three
+	# fallback clips only run if it is disabled or the bake is missing.
+	if matcher and matcher.enabled:
+		matcher.setup(animation.anim_player, animation.skeleton)
+		matcher.inertializer = animation.inertializer
+	if matcher == null or not matcher.enabled:
+		print("FredController clips -> idle:%s walk:%s run:%s" % [idle_clip, walk_clip, run_clip])
+		_play(idle_clip)
+
+	animation.bind_character(self)
 
 	# The rig is a child of Fred for convenience, but it must not inherit his
 	# yaw: he turns to face the direction he is moving, and that direction is
@@ -141,7 +151,14 @@ func _physics_process(delta: float) -> void:
 		var want := atan2(-dir.x, -dir.z)
 		rotation.y = lerp_angle(rotation.y, want, turn_speed * delta)
 
-	_update_clip(Vector2(velocity.x, velocity.z).length(), sprinting)
+	if matcher and matcher.enabled:
+		# Hand the matcher intent, not a clip name: where we want to go, how
+		# fast, and which way we are facing. It picks the pose.
+		matcher.desired_velocity = target_vel
+		matcher.current_velocity = Vector3(velocity.x, 0.0, velocity.z)
+		matcher.desired_facing = -global_transform.basis.z
+	else:
+		_update_clip(Vector2(velocity.x, velocity.z).length(), sprinting)
 
 func _update_clip(speed: float, sprinting: bool) -> void:
 	var want := idle_clip

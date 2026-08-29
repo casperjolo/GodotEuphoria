@@ -41,6 +41,16 @@ environment = SubResource("Environment_idj7w")
 [node name="Sun" type="DirectionalLight3D" parent="." unique_id=762191792]
 transform = Transform3D(-0.8660254, -0.43301278, 0.25, 0, 0.49999997, 0.86602545, -0.50000006, 0.75, -0.43301266, 0, 0, 0)
 shadow_enabled = true
+shadow_bias = 0.0
+shadow_normal_bias = 10.0
+shadow_transmittance_bias = 16.0
+shadow_blur = 0.0
+directional_shadow_split_1 = 0.053
+directional_shadow_split_2 = 1.0
+directional_shadow_split_3 = 1.0
+directional_shadow_fade_start = 0.0
+directional_shadow_max_distance = 71.4
+directional_shadow_pancake_size = 0.2
 
 [node name="Ground" type="StaticBody3D" parent="." unique_id=484835017]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
@@ -64,4 +74,16 @@ freeze = true
 shape = SubResource("BoxShape3D_crate")
 
 [node name="Mesh" type="MeshInstance3D" parent="TestCrate" unique_id=39302796]
+mesh = SubResource("BoxMesh_crate")
+
+[node name="TestWall" type="RigidBody3D" parent="." unique_id=2106122006]
+transform = Transform3D(5.253973, 0, 0, 0, 5.5364203, 0, 0, 0, 1, 0, 1.4, 7.6076255)
+collision_mask = 9
+mass = 12.0
+freeze = true
+
+[node name="Shape" type="CollisionShape3D" parent="TestWall" unique_id=659603625]
+shape = SubResource("BoxShape3D_crate")
+
+[node name="Mesh" type="MeshInstance3D" parent="TestWall" unique_id=103998861]
 mesh = SubResource("BoxMesh_crate")
